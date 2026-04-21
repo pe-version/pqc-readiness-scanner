@@ -85,6 +85,10 @@ The CI workflow at [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs `
 - KMS / HSM inventory adapters (AWS KMS, GCP KMS, HashiCorp Vault)
 - Auto-generated migration patches (planned as a separate companion tool)
 
+## Acknowledgments
+
+Built with assistance from [Claude Code](https://claude.ai/code).
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
