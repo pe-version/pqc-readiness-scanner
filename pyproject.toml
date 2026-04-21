@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pqc-scan"
+version = "0.1.0"
+description = "Scan code, certificates, and TLS endpoints for quantum-vulnerable cryptography."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "Philip Eykamp" }]
+keywords = ["pqc", "post-quantum", "cryptography", "security", "nist", "crypto-agility"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security :: Cryptography",
+]
+dependencies = [
+    "click>=8.1",
+    "rich>=13.0",
+    "cryptography>=41.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+]
+
+[project.scripts]
+pqc-scan = "pqc_scan.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pqc_scan"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
