@@ -27,8 +27,13 @@ pip install -e .
 # Scan a directory
 pqc-scan ./my-project
 
-# Scan a directory and a live TLS endpoint, write reports
-pqc-scan ./my-project --endpoint api.example.com --md report.md --json report.json
+# Scan a directory and a live TLS endpoint, write multiple report formats
+pqc-scan ./my-project --endpoint api.example.com \
+    --md report.md \
+    --json report.json \
+    --sarif report.sarif \
+    --cbom report.cdx.json \
+    --csv report.csv
 
 # Probe several endpoints
 pqc-scan --endpoint github.com --endpoint imap.gmail.com:993
@@ -38,6 +43,17 @@ pqc-scan . --fail-on high
 ```
 
 Run `pqc-scan --help` for the full option list.
+
+## Output formats
+
+| Flag | Format | Use case |
+| --- | --- | --- |
+| (default) | Rich console table | Human inspection at the terminal |
+| `--json` | JSON | Programmatic ingestion, custom dashboards |
+| `--md` | Markdown | Drop-in PR comments and engagement reports |
+| `--sarif` | SARIF v2.1.0 | GitHub code scanning, GitLab security dashboard, Snyk ASOC, Defect Dojo |
+| `--cbom` | CycloneDX 1.6 (cryptographic-asset components) | SBOM workflows; ingestion by DependencyTrack and other CBOM-aware tools |
+| `--csv` | Inventory CSV | Federal PQC inventory (template based on OMB M-23-02 / NSM-10 guidance — verify against your agency's current submission template) |
 
 ## Sample output
 
@@ -58,9 +74,9 @@ A full sample report (Markdown) lives in [`examples/sample_report.md`](examples/
 
 | Category | Algorithms | Why |
 | --- | --- | --- |
-| Broken by Shor's algorithm | RSA, ECDSA, ECDH, DH, DSA, X25519, Ed25519 | Polynomial-time on a CRQC; subject to harvest-now-decrypt-later |
+| Broken by Shor's algorithm | RSA, ECDSA, ECDH, DH, DSA, X25519, Ed25519 | Polynomial-time on a CRQC; subject to harvest-now-decrypt-later. All flagged HIGH — primitive risk is identical, regardless of whether the algorithm is also retained as the classical half of a hybrid construction during migration. |
 | Weakened by Grover's algorithm | AES-128 | Effective key strength halved |
-| Already broken classically | MD5, SHA-1, DES, 3DES, RC4 | Unsafe today, regardless of quantum |
+| Already broken classically | MD5, SHA-1, DES, 3DES, RC4 | Unsafe today, regardless of quantum. Note: bare MD5/SHA-1 used for non-cryptographic content addressing (cache keys, ETags, dedup) is fine cryptographically but migrating changes output bytes — coordinate with downstream consumers. |
 
 ## Limitations
 

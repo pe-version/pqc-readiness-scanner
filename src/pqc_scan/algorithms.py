@@ -82,20 +82,26 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         id="x25519",
         display="X25519",
         category="shor_broken",
-        severity=Severity.MEDIUM,
-        replacement="Hybrid X25519 + ML-KEM (recommended near-term)",
+        severity=Severity.HIGH,
+        replacement="Hybrid X25519 + ML-KEM (recommended near-term migration path)",
         notes=(
-            "Curve25519 ECDH is quantum-vulnerable. Often retained as the classical half "
-            "of a hybrid construction during migration."
+            "Curve25519 ECDH is broken by Shor's algorithm identically to RSA/ECDH. "
+            "Hybrid X25519 + ML-KEM is the recommended migration path, retaining "
+            "X25519 as the classical half for defense-in-depth — that's a deployment "
+            "recommendation, not a reduction in primitive risk."
         ),
     ),
     "ed25519": AlgorithmInfo(
         id="ed25519",
         display="Ed25519",
         category="shor_broken",
-        severity=Severity.MEDIUM,
+        severity=Severity.HIGH,
         replacement="ML-DSA (FIPS 204) or hybrid Ed25519 + ML-DSA",
-        notes="EdDSA over Curve25519 is quantum-vulnerable.",
+        notes=(
+            "EdDSA over Curve25519 is broken by Shor's algorithm identically to ECDSA. "
+            "Hybrid constructions retain Ed25519 as the classical half for defense-in-depth; "
+            "that's a deployment recommendation, not a reduction in primitive risk."
+        ),
     ),
     "md5": AlgorithmInfo(
         id="md5",
@@ -103,7 +109,12 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         category="classically_broken",
         severity=Severity.CRITICAL,
         replacement="SHA-256 / SHA-3-256 (or SHA-384+ for long-term assurance)",
-        notes="Collisions trivially producible. Unsafe for any security purpose.",
+        notes=(
+            "Collisions trivially producible. Unsafe for any security purpose. "
+            "If used as a non-cryptographic content hash (cache keys, ETags, content "
+            "addressing), changing to SHA-256 will alter output bytes — coordinate "
+            "the change with downstream consumers."
+        ),
     ),
     "sha1": AlgorithmInfo(
         id="sha1",
@@ -111,7 +122,12 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         category="classically_broken",
         severity=Severity.HIGH,
         replacement="SHA-256 / SHA-3-256 (or SHA-384+ for long-term assurance)",
-        notes="Practical collisions demonstrated (SHAttered, 2017). Deprecated by NIST.",
+        notes=(
+            "Practical collisions demonstrated (SHAttered, 2017). Deprecated by NIST. "
+            "If used as a non-cryptographic content hash (e.g. git object IDs, dedup "
+            "keys), changing to SHA-256 will alter output bytes — coordinate with "
+            "downstream consumers."
+        ),
     ),
     "des": AlgorithmInfo(
         id="des",
