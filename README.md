@@ -99,7 +99,12 @@ The CI workflow at [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs `
 - Cipher-suite + KEM analysis for TLS endpoints (currently leaf-cert only)
 - Detection inside compiled binaries (parsing OIDs in ELF / PE / Mach-O)
 - KMS / HSM inventory adapters (AWS KMS, GCP KMS, HashiCorp Vault)
-- Auto-generated migration patches (planned as a separate companion tool)
+- Auto-generated migration patches (planned as a separate companion tool, `pqc-fix`)
+
+## Related work
+
+- [`pqc-semgrep-rules`](https://github.com/pe-version/pqc-semgrep-rules) — Semgrep ruleset covering the same algorithms across Python, JavaScript/TypeScript, Go, and Java. Use this if your team already runs Semgrep in CI; use `pqc-scan` for the cert / SSH key / TLS endpoint dimensions Semgrep doesn't cover.
+- [`pqc-hybrid-handshake`](https://github.com/pe-version/pqc-hybrid-handshake) — End-to-end hybrid X25519 + ML-KEM-768 key exchange demo using `liboqs`, illustrating what a migration target actually looks like in working code.
 
 ## Acknowledgments
 
