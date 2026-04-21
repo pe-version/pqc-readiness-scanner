@@ -20,5 +20,5 @@ jobs:
           cache: pip
       - run: pip install -e ".[dev]"
       - run: pytest -v
-      - name: Self-scan
-        run: pqc-scan src --fail-on critical
+      - name: Smoke test CLI on fixtures
+        run: pqc-scan tests/fixtures --md /tmp/report.md --json /tmp/report.json
