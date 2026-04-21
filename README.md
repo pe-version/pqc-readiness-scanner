@@ -4,6 +4,8 @@
 
 NIST finalized the first post-quantum cryptography standards in 2024 (FIPS 203 / 204 / 205). At the same time, **harvest-now-decrypt-later** attacks mean that traffic and data protected today by RSA, ECDSA, ECDH, and Diffie-Hellman are already at risk: an adversary recording encrypted traffic now can decrypt it once a sufficiently large fault-tolerant quantum computer (CRQC) exists. CISA, NSA, and NIST are pushing organizations to **inventory their cryptography** as the first step of migration ([CNSA 2.0](https://media.defense.gov/2022/Sep/07/2003071834/-1/-1/0/CSA_CNSA_2.0_ALGORITHMS_.PDF), [OMB M-23-02](https://www.whitehouse.gov/wp-content/uploads/2022/11/M-23-02-M-Memo-on-Migrating-to-Post-Quantum-Cryptography.pdf)).
 
+The findings produced by this scanner map to **OWASP Top 10 A02:2021 (Cryptographic Failures)**. The underlying weaknesses are catalogued as **CWE-326 (Inadequate Encryption Strength)** for quantum-broken primitives and **CWE-327 (Use of a Broken or Risky Cryptographic Algorithm)** for classically-broken primitives. The SARIF and CycloneDX 1.6 CBOM reports include these mappings so they pass through to GitHub code scanning, GitLab dashboards, and SBOM-aware tooling.
+
 `pqc-scan` is a small, dependency-light CLI that does that inventory for a repository or live host. It flags quantum-vulnerable algorithms in:
 
 - **Source code** — Python, JavaScript/TypeScript, Go, Rust, Java/Kotlin/Scala, C/C++, C#, Ruby, PHP, shell, Terraform, configuration files, and others
