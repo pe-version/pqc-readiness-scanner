@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Iterator
 
 from pqc_scan.algorithms import ALGORITHMS
-from pqc_scan.findings import Finding
+from pqc_scan.findings import Finding, is_test_path
 
 
 SSH_KEY_PREFIXES: dict[str, str] = {
@@ -45,6 +45,8 @@ def scan_file(path: Path) -> list[Finding]:
     except OSError:
         return []
     findings: list[Finding] = []
+    location = str(path)
+    in_test = is_test_path(location)
     for lineno, raw in enumerate(text.splitlines(), start=1):
         line = raw.strip()
         if not line or line.startswith("#"):
@@ -61,16 +63,18 @@ def scan_file(path: Path) -> list[Finding]:
         info = ALGORITHMS[alg_id]
         findings.append(
             Finding(
+                rule_id=f"pqc-scan.ssh.{alg_id}-key",
                 algorithm_id=info.id,
                 algorithm_display=f"{info.display} (SSH key)",
                 severity=info.severity,
                 category=info.category,
-                location=str(path),
+                location=location,
                 line=lineno,
                 context=candidate,
                 scanner="ssh_keys",
                 replacement=info.replacement,
                 notes=info.notes,
+                in_test_path=in_test,
             )
         )
     return findings

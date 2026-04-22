@@ -25,6 +25,14 @@ PRIMITIVE_MAP: dict[str, str] = {
     "3des": "block-cipher",
     "rc4": "stream-cipher",
     "aes_128": "block-cipher",
+    "xmss_family": "signature",
+    "lms_family": "signature",
+    "jwt_alg_none": "signature",
+    "jwt_verify_disabled": "signature",
+    "jwt_weak_hmac_secret": "mac",
+    "jwt_rs256": "signature",
+    "jwt_es256": "signature",
+    "jwt_eddsa": "signature",
 }
 
 OID_MAP: dict[str, str] = {
@@ -39,6 +47,23 @@ OID_MAP: dict[str, str] = {
     "3des": "1.2.840.113549.3.7",
     "rc4": "1.2.840.113549.3.4",
     "aes_128": "2.16.840.1.101.3.4.1.2",
+    # XMSS / LMS OIDs are advisory: the family-level entries cover multiple
+    # variants, so the OID here points at the most common parent identifier.
+    "xmss_family": "1.3.6.1.4.1.45724.2.1.1",
+    "lms_family": "1.2.840.113549.1.9.16.3.17",
+}
+
+# CycloneDX 1.6 nistQuantumSecurityLevel: 0 = quantum-vulnerable / not applicable;
+# 1-5 correspond to the NIST PQC categories. We assign by primitive category, not
+# by claimed parameter set, since the scanner doesn't observe parameters.
+CATEGORY_TO_NIST_LEVEL: dict[str, int] = {
+    "shor_broken": 0,
+    "grover_weakened": 0,
+    "classically_broken": 0,
+    "pqc_safe": 3,             # ML-KEM-768 / ML-DSA-65 baseline
+    "pqc_safe_with_caveats": 3,
+    "jwt_pqc_migration": 0,
+    "jwt_classical_misuse": 0,
 }
 
 
@@ -89,15 +114,17 @@ def _component_for(idx: int, f: Finding) -> dict:
                 "executionEnvironment": "software-plain-ram",
                 "implementationPlatform": "generic",
                 "certificationLevel": ["none"],
-                "nistQuantumSecurityLevel": 0,
+                "nistQuantumSecurityLevel": CATEGORY_TO_NIST_LEVEL.get(f.category, 0),
             },
         },
         "evidence": {"occurrences": [{"location": location_str}]},
         "properties": [
+            {"name": "pqc:rule-id", "value": f.rule_id},
             {"name": "pqc:severity", "value": f.severity.value},
             {"name": "pqc:category", "value": f.category},
             {"name": "pqc:recommended-replacement", "value": f.replacement},
             {"name": "pqc:scanner", "value": f.scanner},
+            {"name": "pqc:in-test-path", "value": "true" if f.in_test_path else "false"},
         ],
     }
     if f.algorithm_id in OID_MAP:

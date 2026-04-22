@@ -11,6 +11,7 @@ from pqc_scan.findings import Finding, Severity
 from pqc_scan.reporters import console as console_report
 from pqc_scan.reporters import csv_inventory, cyclonedx, json_report, markdown, sarif
 from pqc_scan.scanners import certificates as cert_scanner
+from pqc_scan.scanners import jwt_scan
 from pqc_scan.scanners import source_code as source_scanner
 from pqc_scan.scanners import ssh_keys as ssh_scanner
 from pqc_scan.scanners import tls_endpoint as tls_scanner
@@ -54,8 +55,13 @@ def _parse_endpoint(value: str) -> tuple[str, int]:
     help="Exit non-zero if any finding meets or exceeds this severity.",
 )
 @click.option("--no-source", is_flag=True, help="Skip the source-code scan.")
+@click.option("--no-jwt", is_flag=True, help="Skip the JWT scan.")
 @click.option("--no-certs", is_flag=True, help="Skip the certificate scan.")
 @click.option("--no-ssh", is_flag=True, help="Skip the SSH-key scan.")
+@click.option(
+    "--skip-tests", is_flag=True,
+    help="Drop findings whose path contains a test/fixture directory component.",
+)
 @click.version_option(__version__, prog_name="pqc-scan")
 def main(
     path: Path | None,
@@ -67,8 +73,10 @@ def main(
     csv_out: Path | None,
     fail_on: str | None,
     no_source: bool,
+    no_jwt: bool,
     no_certs: bool,
     no_ssh: bool,
+    skip_tests: bool,
 ) -> None:
     """Scan for quantum-vulnerable cryptography.
 
@@ -82,6 +90,8 @@ def main(
     if path is not None:
         if not no_source:
             findings.extend(source_scanner.scan_path(path))
+        if not no_jwt:
+            findings.extend(jwt_scan.scan_path(path))
         if not no_certs:
             findings.extend(cert_scanner.scan_path(path))
         if not no_ssh:
@@ -89,6 +99,9 @@ def main(
     for ep in endpoints:
         host, port = _parse_endpoint(ep)
         findings.extend(tls_scanner.scan_endpoint(host, port))
+
+    if skip_tests:
+        findings = [f for f in findings if not f.in_test_path]
 
     target_label = str(path) if path else ", ".join(endpoints)
 

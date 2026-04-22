@@ -9,13 +9,14 @@ The findings produced by this scanner map to **OWASP Top 10 A02:2021 (Cryptograp
 `pqc-scan` is a small, dependency-light CLI that does that inventory for a repository or live host. It flags quantum-vulnerable algorithms in:
 
 - **Source code** — Python, JavaScript/TypeScript, Go, Rust, Java/Kotlin/Scala, C/C++, C#, Ruby, PHP, shell, Terraform, configuration files, and others
-- **X.509 certificates** — `.pem`, `.crt`, `.cer`, `.der`
+- **X.509 certificates** — `.pem`, `.crt`, `.cer`, `.der` (including XMSS / HSS-LMS signature OIDs per NIST SP 800-208)
 - **SSH keys, `authorized_keys`, `known_hosts`**
 - **Live TLS endpoints** — server certificate public key + signature hash
+- **JSON Web Token usage** — RS256 / ES256 / EdDSA (PQC-migration surface) plus `alg: none`, signature verification disabled, and weak HMAC secrets (the classical-failure cases that co-occur with PQC migration work)
 
-For each finding it reports the **NIST-recommended replacement** (ML-KEM, ML-DSA, SLH-DSA, AES-256, etc.).
+For each finding it reports the **NIST-recommended replacement** (ML-KEM, ML-DSA, SLH-DSA, AES-256, etc.) and a stable **rule ID** that supports inline suppression and SARIF dedup.
 
-> **Scope.** `pqc-scan` is a starting-point inventory tool. It detects algorithm *usage*, not whether that usage is actually protecting sensitive data. Real cryptographic-bill-of-materials work also covers compiled binaries, HSMs / KMS, network captures, and data-flow analysis. Use this tool for a fast first pass.
+> **Scope.** `pqc-scan` is a starting-point inventory tool. It detects algorithm *usage*, not whether that usage is actually protecting sensitive data. Real cryptographic-bill-of-materials work also covers compiled binaries, HSMs / KMS, network captures, and data-flow analysis. Use this tool for a fast first pass. See [SCOPE.md](SCOPE.md) for what is — and is not — in scope, and why.
 
 ## Install
 
@@ -79,12 +80,46 @@ A full sample report (Markdown) lives in [`examples/sample_report.md`](examples/
 | Broken by Shor's algorithm | RSA, ECDSA, ECDH, DH, DSA, X25519, Ed25519 | Polynomial-time on a CRQC; subject to harvest-now-decrypt-later. All flagged HIGH — primitive risk is identical, regardless of whether the algorithm is also retained as the classical half of a hybrid construction during migration. |
 | Weakened by Grover's algorithm | AES-128 | Effective key strength halved |
 | Already broken classically | MD5, SHA-1, DES, 3DES, RC4 | Unsafe today, regardless of quantum. Note: bare MD5/SHA-1 used for non-cryptographic content addressing (cache keys, ETags, dedup) is fine cryptographically but migrating changes output bytes — coordinate with downstream consumers. |
+| PQC-safe with caveats | XMSS, XMSSMT, LMS, HSS-LMS | Stateful hash-based signatures per NIST SP 800-208. Quantum-safe at the primitive level but require careful state management; flagged INFO so you can verify state-management correctness separately (SP 800-208 §6). |
+| JWT — PQC migration surface | RS256/RS384/RS512, ES256/ES384/ES512, EdDSA | Signature algorithms inside JWS. Same Shor's-algorithm exposure as the underlying primitives; flagged HIGH so they appear next to other RSA/ECDSA/Ed25519 findings during planning. |
+| JWT — classical misuse | `alg: none`, `verify=False`, weak HMAC literal secrets | Co-occur with the JWT migration surface and block migration sanity (you can't migrate signing if signing isn't verified). The JWT scanner is *not* a complete RFC 8725 (BCP) implementation — see [SCOPE.md](SCOPE.md). |
+
+## How to triage findings
+
+Across three OSS targets (`requests` v2.32.3, `django` 5.0.10, `ansible` v2.17.7), `pqc-scan` v0.2 produced **132 findings, 0 false positives, ~6 production-code migration items.** The rest are test fixtures, legacy-compatibility helpers, or protocol-mandated usages. See [EVALUATION.md](EVALUATION.md) for the methodology and caveats (precision is not recall; precision is not actionability).
+
+Most `pqc-scan` findings on a real codebase are *correctly identified* but *not actionable as production migration items*. Use the following triage order:
+
+1. **Run with `--skip-tests`.** `tests/`, `__tests__/`, `fixtures/`, `testdata/`, etc. are excluded from the default-on report. Findings under those paths are flagged with `in_test_path: true` in JSON / SARIF / CSV output and dropped entirely with `--skip-tests`. Most real codebases see 60–80% of findings drop here.
+2. **Identify protocol-mandated cases.** Some algorithms are required by the protocols they implement (RFC 7616 HTTP Digest Auth requires MD5/SHA-1; some legacy SSH integrations require ssh-rsa). The local fix is "deprecate the protocol surface or accept the dependency," not "swap the hash function." Suppress with `# pqc-scan: ignore[<rule-id>]` on the line and link to the spec in the comment above.
+3. **Group by rule ID, not by file.** Each finding carries a stable `rule_id` (e.g. `pqc-scan.source.rsa.cryptography-rsa-call`). One unfamiliar rule firing 30 times is one decision to make, not 30; baseline-ack the whole rule once you've understood what it covers.
+4. **Production code remaining is your inventory.** Whatever survives steps 1–3 is the real PQC migration surface for the repo. For each: identify the upstream library, check whether it has a PQC migration story, and capture the dependency in your CBOM.
+
+Worked numbers from real OSS targets are in [EVALUATION.md](EVALUATION.md).
+
+### Suppressing a finding
+
+Inline, on the line that produced the finding:
+
+```python
+hashlib.md5(content_bytes)  # pqc-scan: ignore[pqc-scan.source.md5.python-hashlib]  # cache key, not crypto
+```
+
+Or, suppress all rules on that line:
+
+```python
+hashlib.md5(content_bytes)  # pqc-scan: ignore  # used by HTTP Digest Auth (RFC 7616)
+```
+
+The suppression syntax is intentionally minimal in v0.2: line-trailing only, no expiration, no required justification. A future release may add a baseline file for project-wide suppression — see [SCOPE.md](SCOPE.md).
 
 ## Limitations
 
-- **Regex-based source scan**, not full AST analysis. False positives in comments and string literals are possible; minified files and very large files are skipped.
+- **Regex-based source scan**, not full AST analysis. False positives in comments and string literals are possible; minified files and very large files are skipped. AST-based detection is on the roadmap, gated on `EVALUATION.md` precision data justifying the refactor.
 - **No binary scan.** Compiled artifacts are not analyzed.
 - **TLS endpoint scan is informational** — only the leaf certificate's public key and signature hash are checked, not the negotiated cipher suite or KEM.
+- **JWT scanner is intentionally narrow.** Covers PQC-migration surface plus the canonical classical-failure cases. Not a complete RFC 8725 (BCP) implementation — see [SCOPE.md](SCOPE.md).
+- **XMSS / LMS detection is inventory only.** The scanner identifies use of stateful hash-based signatures but does not analyze state-management correctness. See NIST SP 800-208 §6 for the operational requirements.
 - **The taxonomy is opinionated.** "Migrate before a CRQC exists" reflects current NIST/NSA/CISA guidance but the timeline is a moving target.
 
 ## Development
@@ -98,9 +133,11 @@ The CI workflow at [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs `
 
 ## Roadmap
 
+- AST-based source detection (libcst for Python, tree-sitter for others) — gated on EVALUATION.md showing real precision gaps
 - Cipher-suite + KEM analysis for TLS endpoints (currently leaf-cert only)
-- Detection inside compiled binaries (parsing OIDs in ELF / PE / Mach-O)
 - KMS / HSM inventory adapters (AWS KMS, GCP KMS, HashiCorp Vault)
+- Per-rule baseline file (`.pqc-scan-baseline.yml`) for project-wide suppression
+- Detection inside compiled binaries (parsing OIDs in ELF / PE / Mach-O)
 - Auto-generated migration patches (planned as a separate companion tool, `pqc-fix`)
 
 ## Related work

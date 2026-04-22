@@ -3,9 +3,13 @@ from __future__ import annotations
 import json
 
 from pqc_scan import __version__
-from pqc_scan.algorithms import ALGORITHMS
 from pqc_scan.findings import Finding, Severity
 
+# Use the OASIS-published 2.1.0 schema URL. The historical raw.githubusercontent
+# path under the "master" branch returns 404 because the spec repo's default
+# branch was renamed; the docs.oasis-open.org URL is the durable canonical.
+SARIF_SCHEMA = "https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/schemas/sarif-schema-2.1.0.json"
+INFO_URI = "https://github.com/pe-version/pqc-readiness-scanner"
 
 SEVERITY_TO_LEVEL: dict[Severity, str] = {
     Severity.CRITICAL: "error",
@@ -15,11 +19,10 @@ SEVERITY_TO_LEVEL: dict[Severity, str] = {
     Severity.INFO: "note",
 }
 
-SARIF_SCHEMA = "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json"
-INFO_URI = "https://github.com/pe-version/pqc-readiness-scanner"
-
 
 def render(findings: list[Finding]) -> str:
+    sorted_findings = sorted(findings, key=lambda x: x.sort_key())
+    rules = _build_rules(sorted_findings)
     payload = {
         "$schema": SARIF_SCHEMA,
         "version": "2.1.0",
@@ -30,34 +33,41 @@ def render(findings: list[Finding]) -> str:
                         "name": "pqc-scan",
                         "version": __version__,
                         "informationUri": INFO_URI,
-                        "rules": _build_rules(),
+                        "rules": rules,
                     }
                 },
-                "results": [
-                    _result_for(f) for f in sorted(findings, key=lambda x: x.sort_key())
-                ],
+                "results": [_result_for(f) for f in sorted_findings],
             }
         ],
     }
     return json.dumps(payload, indent=2)
 
 
-def _build_rules() -> list[dict]:
-    rules = []
-    for alg_id, info in ALGORITHMS.items():
-        prefix = "QuantumVulnerable" if info.category == "shor_broken" else "WeakCrypto"
+def _build_rules(findings: list[Finding]) -> list[dict]:
+    """Emit one SARIF rule per distinct rule_id observed in this run.
+
+    Per the SARIF 2.1.0 spec, results.ruleId must reference an entry in
+    tool.driver.rules. Emitting only observed rules keeps the report compact
+    while remaining valid.
+    """
+    seen: dict[str, Finding] = {}
+    for f in findings:
+        seen.setdefault(f.rule_id, f)
+    rules: list[dict] = []
+    for rule_id, f in sorted(seen.items()):
         rules.append(
             {
-                "id": alg_id,
-                "name": f"{prefix}_{alg_id.upper()}",
-                "shortDescription": {"text": info.display},
-                "fullDescription": {"text": info.notes},
+                "id": rule_id,
+                "name": rule_id.replace(".", "_").replace("-", "_"),
+                "shortDescription": {"text": f.algorithm_display},
+                "fullDescription": {"text": f.notes},
                 "helpUri": f"{INFO_URI}#what-it-flags",
-                "defaultConfiguration": {"level": SEVERITY_TO_LEVEL[info.severity]},
+                "defaultConfiguration": {"level": SEVERITY_TO_LEVEL[f.severity]},
                 "properties": {
-                    "category": info.category,
-                    "severity": info.severity.value,
-                    "recommended_replacement": info.replacement,
+                    "category": f.category,
+                    "severity": f.severity.value,
+                    "recommended_replacement": f.replacement,
+                    "algorithm_id": f.algorithm_id,
                 },
             }
         )
@@ -73,7 +83,7 @@ def _result_for(f: Finding) -> dict:
     if f.line is not None:
         location["physicalLocation"]["region"] = {"startLine": f.line}
     return {
-        "ruleId": f.algorithm_id,
+        "ruleId": f.rule_id,
         "level": SEVERITY_TO_LEVEL[f.severity],
         "message": {
             "text": (
@@ -87,5 +97,6 @@ def _result_for(f: Finding) -> dict:
             "context": f.context,
             "category": f.category,
             "severity": f.severity.value,
+            "in_test_path": f.in_test_path,
         },
     }

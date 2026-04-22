@@ -34,6 +34,22 @@ CATEGORY_DESCRIPTIONS: dict[str, str] = {
         "NIST PQC standard or symmetric primitive considered post-quantum "
         "secure at standard parameters."
     ),
+    "pqc_safe_with_caveats": (
+        "Post-quantum-secure primitive whose safe use depends on operational "
+        "conditions this tool cannot verify (e.g. correct state management for "
+        "stateful hash-based signatures per NIST SP 800-208 §6). Reported as "
+        "informational inventory; verify operational guarantees separately."
+    ),
+    "jwt_pqc_migration": (
+        "JSON Web Token signing algorithm whose underlying primitive is broken "
+        "by Shor's algorithm and must be migrated as part of PQC readiness."
+    ),
+    "jwt_classical_misuse": (
+        "JSON Web Token usage pattern with a known classical security failure "
+        "(e.g. 'alg: none', signature verification disabled, weak HMAC secret). "
+        "Reported because it co-occurs with the PQC migration surface; not a "
+        "general crypto-hygiene rule."
+    ),
 }
 
 
@@ -162,6 +178,101 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         notes=(
             "Grover's algorithm halves effective key strength to ~64 bits. "
             "AES-256 restores 128-bit post-quantum security."
+        ),
+    ),
+    "xmss_family": AlgorithmInfo(
+        id="xmss_family",
+        display="XMSS / XMSSMT (stateful hash-based signature)",
+        category="pqc_safe_with_caveats",
+        severity=Severity.INFO,
+        replacement="N/A — PQC-safe; verify state management.",
+        notes=(
+            "XMSS (RFC 8391) and its multi-tree variant XMSSMT are PQC-safe stateful "
+            "hash-based signatures standardized by NIST SP 800-208. Safety depends on "
+            "never reusing one-time keys, which requires careful state persistence. "
+            "This tool detects use, not state-management correctness — see SP 800-208 §6."
+        ),
+    ),
+    "lms_family": AlgorithmInfo(
+        id="lms_family",
+        display="LMS / HSS-LMS (stateful hash-based signature)",
+        category="pqc_safe_with_caveats",
+        severity=Severity.INFO,
+        replacement="N/A — PQC-safe; verify state management.",
+        notes=(
+            "LMS (RFC 8554) and its hierarchical variant HSS are PQC-safe stateful "
+            "hash-based signatures standardized by NIST SP 800-208. Safety depends on "
+            "never reusing one-time keys, which requires careful state persistence. "
+            "This tool detects use, not state-management correctness — see SP 800-208 §6."
+        ),
+    ),
+    "jwt_alg_none": AlgorithmInfo(
+        id="jwt_alg_none",
+        display="JWT alg=none",
+        category="jwt_classical_misuse",
+        severity=Severity.CRITICAL,
+        replacement="Require an explicit signing algorithm; reject 'none' on verification.",
+        notes=(
+            "RFC 7519 permits an unsecured JWS with alg='none'. Accepting it during "
+            "verification allows attacker-forged tokens. Pin the accepted algorithm "
+            "list and reject unsigned tokens (RFC 8725 §3.2)."
+        ),
+    ),
+    "jwt_verify_disabled": AlgorithmInfo(
+        id="jwt_verify_disabled",
+        display="JWT signature verification disabled",
+        category="jwt_classical_misuse",
+        severity=Severity.HIGH,
+        replacement="Verify signatures with a pinned algorithm allowlist.",
+        notes=(
+            "Calls like jwt.decode(..., verify=False) or algorithms=None accept any "
+            "JWT including forged ones. Required for PQC migration sanity (you cannot "
+            "migrate signing if signing isn't checked). RFC 8725 §3.1."
+        ),
+    ),
+    "jwt_weak_hmac_secret": AlgorithmInfo(
+        id="jwt_weak_hmac_secret",
+        display="JWT HMAC secret too short (literal in source)",
+        category="jwt_classical_misuse",
+        severity=Severity.HIGH,
+        replacement="Use a randomly generated secret of at least 32 bytes loaded from a secret store.",
+        notes=(
+            "HMAC-SHA256 needs a secret of at least the hash output length (32 bytes). "
+            "Short literal secrets are brute-forceable and frequently leaked via VCS. "
+            "Reported only when a string literal of <32 bytes is the visible secret."
+        ),
+    ),
+    "jwt_rs256": AlgorithmInfo(
+        id="jwt_rs256",
+        display="JWT RS256 / RS384 / RS512 (RSA signature)",
+        category="jwt_pqc_migration",
+        severity=Severity.HIGH,
+        replacement="ML-DSA (FIPS 204) once your JWT library and counterparties support it.",
+        notes=(
+            "RSA-PKCS1v1.5 signatures inside JWS. Broken by Shor's algorithm; part of "
+            "the PQC migration surface for any service issuing or verifying JWTs."
+        ),
+    ),
+    "jwt_es256": AlgorithmInfo(
+        id="jwt_es256",
+        display="JWT ES256 / ES384 / ES512 (ECDSA signature)",
+        category="jwt_pqc_migration",
+        severity=Severity.HIGH,
+        replacement="ML-DSA (FIPS 204) once your JWT library and counterparties support it.",
+        notes=(
+            "ECDSA signatures inside JWS. Broken by Shor's algorithm; part of the PQC "
+            "migration surface for any service issuing or verifying JWTs."
+        ),
+    ),
+    "jwt_eddsa": AlgorithmInfo(
+        id="jwt_eddsa",
+        display="JWT EdDSA (Ed25519 signature)",
+        category="jwt_pqc_migration",
+        severity=Severity.HIGH,
+        replacement="ML-DSA (FIPS 204) once your JWT library and counterparties support it.",
+        notes=(
+            "EdDSA (Ed25519) signatures inside JWS. Broken by Shor's algorithm; part "
+            "of the PQC migration surface for any service issuing or verifying JWTs."
         ),
     ),
 }

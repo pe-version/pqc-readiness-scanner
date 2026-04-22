@@ -16,6 +16,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 SAMPLE: list[Finding] = [
     Finding(
+        rule_id="pqc-scan.source.rsa.cryptography-rsa-call",
         algorithm_id="rsa",
         algorithm_display="RSA",
         severity=Severity.HIGH,
@@ -28,6 +29,7 @@ SAMPLE: list[Finding] = [
         notes="Broken by Shor.",
     ),
     Finding(
+        rule_id="pqc-scan.source.md5.python-hashlib",
         algorithm_id="md5",
         algorithm_display="MD5",
         severity=Severity.CRITICAL,
@@ -56,8 +58,22 @@ def test_sarif_severity_to_level_mapping():
     data = json.loads(text)
     levels = {r["ruleId"]: r["level"] for r in data["runs"][0]["results"]}
     # CRITICAL and HIGH both map to "error" per SARIF conventions
-    assert levels["rsa"] == "error"
-    assert levels["md5"] == "error"
+    assert levels["pqc-scan.source.rsa.cryptography-rsa-call"] == "error"
+    assert levels["pqc-scan.source.md5.python-hashlib"] == "error"
+
+
+def test_sarif_emits_rule_definitions_for_observed_rule_ids():
+    text = sarif.render(SAMPLE)
+    data = json.loads(text)
+    rule_ids = {r["id"] for r in data["runs"][0]["tool"]["driver"]["rules"]}
+    assert "pqc-scan.source.rsa.cryptography-rsa-call" in rule_ids
+    assert "pqc-scan.source.md5.python-hashlib" in rule_ids
+
+
+def test_sarif_schema_url_is_oasis_canonical():
+    text = sarif.render(SAMPLE)
+    data = json.loads(text)
+    assert "docs.oasis-open.org" in data["$schema"]
 
 
 def test_cyclonedx_renders_valid_cbom():
@@ -76,11 +92,32 @@ def test_cyclonedx_includes_well_known_oid():
     assert rsa["cryptoProperties"]["oid"] == "1.2.840.113549.1.1.1"
 
 
-def test_cyclonedx_marks_quantum_security_level_zero():
+def test_cyclonedx_marks_quantum_vulnerable_components_at_level_zero():
     text = cyclonedx.render(SAMPLE)
     data = json.loads(text)
+    # All sample findings are quantum-vulnerable / classically broken => level 0.
     for c in data["components"]:
         assert c["cryptoProperties"]["algorithmProperties"]["nistQuantumSecurityLevel"] == 0
+
+
+def test_cyclonedx_marks_pqc_safe_with_caveats_at_positive_level():
+    pqc_safe_finding = Finding(
+        rule_id="pqc-scan.source.xmss.bare-name",
+        algorithm_id="xmss_family",
+        algorithm_display="XMSS / XMSSMT (stateful hash-based signature)",
+        severity=Severity.INFO,
+        category="pqc_safe_with_caveats",
+        location="src/sig.py",
+        line=5,
+        context="XMSS",
+        scanner="source_code",
+        replacement="N/A",
+        notes="Stateful HBS.",
+    )
+    text = cyclonedx.render([pqc_safe_finding])
+    data = json.loads(text)
+    level = data["components"][0]["cryptoProperties"]["algorithmProperties"]["nistQuantumSecurityLevel"]
+    assert level >= 1
 
 
 def test_csv_writes_header_and_row_per_finding():
