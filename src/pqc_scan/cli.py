@@ -19,6 +19,7 @@ from pqc_scan.reporters import csv_inventory, cyclonedx, json_report, markdown, 
 from pqc_scan.scanners import certificates as cert_scanner
 from pqc_scan.scanners import jwt_scan
 from pqc_scan.scanners import source_code as source_scanner
+from pqc_scan.scanners import source_code_ast as source_ast_scanner
 from pqc_scan.scanners import ssh_keys as ssh_scanner
 from pqc_scan.scanners import tls_endpoint as tls_scanner
 
@@ -28,6 +29,25 @@ def _parse_endpoint(value: str) -> tuple[str, int]:
         host, port = value.rsplit(":", 1)
         return host, int(port)
     return value, 443
+
+
+def _dedup_findings(findings: list[Finding]) -> list[Finding]:
+    """Drop duplicate findings keyed by (rule_id, location, line).
+
+    The regex source scanner and the AST source scanner share rule_ids by
+    design, so an issue caught by both is reported once. Regex findings
+    are kept as canonical (they appear earlier in the aggregation list)
+    and AST findings only survive when they detect something regex didn't.
+    """
+    seen: set[tuple[str, str, int | None]] = set()
+    out: list[Finding] = []
+    for f in findings:
+        key = (f.rule_id, f.location, f.line)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(f)
+    return out
 
 
 def _resolve_baseline(
@@ -90,6 +110,10 @@ def _resolve_baseline(
 @click.option("--no-certs", is_flag=True, help="Skip the certificate scan.")
 @click.option("--no-ssh", is_flag=True, help="Skip the SSH-key scan.")
 @click.option(
+    "--no-ast", is_flag=True,
+    help="Skip the AST-based Python source scanner (regex source scanner is unaffected).",
+)
+@click.option(
     "--skip-tests", is_flag=True,
     help="Drop findings whose path contains a test/fixture directory component.",
 )
@@ -119,6 +143,7 @@ def main(
     no_jwt: bool,
     no_certs: bool,
     no_ssh: bool,
+    no_ast: bool,
     skip_tests: bool,
     baseline_path: Path | None,
     no_baseline: bool,
@@ -135,6 +160,8 @@ def main(
     if path is not None:
         if not no_source:
             findings.extend(source_scanner.scan_path(path))
+        if not no_ast:
+            findings.extend(source_ast_scanner.scan_path(path))
         if not no_jwt:
             findings.extend(jwt_scan.scan_path(path))
         if not no_certs:
@@ -144,6 +171,8 @@ def main(
     for ep in endpoints:
         host, port = _parse_endpoint(ep)
         findings.extend(tls_scanner.scan_endpoint(host, port))
+
+    findings = _dedup_findings(findings)
 
     if skip_tests:
         findings = [f for f in findings if not f.in_test_path]

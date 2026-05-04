@@ -146,7 +146,7 @@ suppressions:
 
 ## Limitations
 
-- **Regex-based source scan**, not full AST analysis. False positives in comments and string literals are possible; minified files and very large files are skipped. AST-based detection is on the roadmap, gated on `EVALUATION.md` precision data justifying the refactor.
+- **Two-stage source scan**: regex (fast, multi-language, may match comments/strings) and AST (Python-only, libcst-based, precision-oriented) run in parallel. Both share rule IDs so duplicates collapse. AST adds coverage of aliased imports (`from hashlib import md5 as h; h(b"x")`) that regex cannot match while suppressing common false-positive patterns (string literals, locally-shadowed names, mentions in docstrings/comments). Minified files and very large files are skipped by both. Disable AST with `--no-ast`.
 - **No binary scan.** Compiled artifacts are not analyzed.
 - **TLS endpoint scan covers the cert and the negotiated TLS 1.3 key-exchange group** via a hand-rolled record parser ([`tls_records.py`](src/pqc_scan/tls_records.py), [`tls_groups.py`](src/pqc_scan/tls_groups.py)). The advertised-group list and group-ID registry must be kept current as new PQC hybrid codepoints are deployed; out-of-date → false negatives.
 - **JWT scanner is intentionally narrow.** Covers PQC-migration surface plus the canonical classical-failure cases. Not a complete RFC 8725 (BCP) implementation — see [SCOPE.md](SCOPE.md).
@@ -164,7 +164,7 @@ The CI workflow at [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs `
 
 ## Roadmap
 
-- AST-based source detection (libcst for Python, tree-sitter for others) — gated on EVALUATION.md showing real precision gaps
+- AST-based source detection for non-Python languages (tree-sitter); Python AST is already shipped via [`source_code_ast.py`](src/pqc_scan/scanners/source_code_ast.py)
 - Cipher-suite analysis for TLS endpoints (KEM-group analysis already shipped; cipher suites are captured but not yet emitted as their own findings)
 - KMS / HSM inventory adapters (AWS KMS, GCP KMS, HashiCorp Vault)
 - Per-rule baseline file (`.pqc-scan-baseline.yml`) for project-wide suppression
