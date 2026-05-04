@@ -7,12 +7,19 @@ import click
 from rich.console import Console
 
 from pqc_scan import __version__
+from pqc_scan.baseline import (
+    Baseline,
+    BaselineError,
+    discover_baseline,
+    load_baseline,
+)
 from pqc_scan.findings import Finding, Severity
 from pqc_scan.reporters import console as console_report
 from pqc_scan.reporters import csv_inventory, cyclonedx, json_report, markdown, sarif
 from pqc_scan.scanners import certificates as cert_scanner
 from pqc_scan.scanners import jwt_scan
 from pqc_scan.scanners import source_code as source_scanner
+from pqc_scan.scanners import source_code_ast as source_ast_scanner
 from pqc_scan.scanners import ssh_keys as ssh_scanner
 from pqc_scan.scanners import tls_endpoint as tls_scanner
 
@@ -22,6 +29,50 @@ def _parse_endpoint(value: str) -> tuple[str, int]:
         host, port = value.rsplit(":", 1)
         return host, int(port)
     return value, 443
+
+
+def _dedup_findings(findings: list[Finding]) -> list[Finding]:
+    """Drop duplicate findings keyed by (rule_id, location, line).
+
+    The regex source scanner and the AST source scanner share rule_ids by
+    design, so an issue caught by both is reported once. Regex findings
+    are kept as canonical (they appear earlier in the aggregation list)
+    and AST findings only survive when they detect something regex didn't.
+    """
+    seen: set[tuple[str, str, int | None]] = set()
+    out: list[Finding] = []
+    for f in findings:
+        key = (f.rule_id, f.location, f.line)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(f)
+    return out
+
+
+def _resolve_baseline(
+    explicit_path: Path | None, suppress_autodiscover: bool, target: Path | None
+) -> Baseline | None:
+    """Decide which baseline to load (if any) and parse it.
+
+    --baseline PATH always wins. Otherwise, unless --no-baseline is set,
+    look for .pqc-scan-baseline.yml in the target directory or CWD.
+    """
+    chosen: Path | None
+    if explicit_path is not None:
+        chosen = explicit_path
+    elif suppress_autodiscover:
+        chosen = None
+    else:
+        chosen = discover_baseline(target)
+
+    if chosen is None:
+        return None
+
+    try:
+        return load_baseline(chosen)
+    except BaselineError as exc:
+        raise click.UsageError(str(exc)) from exc
 
 
 @click.command(context_settings={"help_option_names": ["-h", "--help"]})
@@ -59,8 +110,24 @@ def _parse_endpoint(value: str) -> tuple[str, int]:
 @click.option("--no-certs", is_flag=True, help="Skip the certificate scan.")
 @click.option("--no-ssh", is_flag=True, help="Skip the SSH-key scan.")
 @click.option(
+    "--no-ast", is_flag=True,
+    help="Skip the AST-based Python source scanner (regex source scanner is unaffected).",
+)
+@click.option(
     "--skip-tests", is_flag=True,
     help="Drop findings whose path contains a test/fixture directory component.",
+)
+@click.option(
+    "--baseline", "baseline_path", type=click.Path(path_type=Path),
+    help=(
+        "Path to a baseline file (YAML) listing rule/path suppressions. "
+        "If omitted, looks for .pqc-scan-baseline.yml in the scanned directory "
+        "and the current working directory."
+    ),
+)
+@click.option(
+    "--no-baseline", is_flag=True,
+    help="Skip auto-discovery of .pqc-scan-baseline.yml. Use with --baseline to override.",
 )
 @click.version_option(__version__, prog_name="pqc-scan")
 def main(
@@ -76,7 +143,10 @@ def main(
     no_jwt: bool,
     no_certs: bool,
     no_ssh: bool,
+    no_ast: bool,
     skip_tests: bool,
+    baseline_path: Path | None,
+    no_baseline: bool,
 ) -> None:
     """Scan for quantum-vulnerable cryptography.
 
@@ -90,6 +160,8 @@ def main(
     if path is not None:
         if not no_source:
             findings.extend(source_scanner.scan_path(path))
+        if not no_ast:
+            findings.extend(source_ast_scanner.scan_path(path))
         if not no_jwt:
             findings.extend(jwt_scan.scan_path(path))
         if not no_certs:
@@ -100,8 +172,21 @@ def main(
         host, port = _parse_endpoint(ep)
         findings.extend(tls_scanner.scan_endpoint(host, port))
 
+    findings = _dedup_findings(findings)
+
     if skip_tests:
         findings = [f for f in findings if not f.in_test_path]
+
+    baseline = _resolve_baseline(baseline_path, no_baseline, path)
+    if baseline is not None and baseline.entries:
+        before = len(findings)
+        findings = baseline.filter(findings)
+        suppressed = before - len(findings)
+        if suppressed:
+            click.echo(
+                f"[baseline] suppressed {suppressed} finding(s) via {len(baseline.entries)} rule(s)",
+                err=True,
+            )
 
     target_label = str(path) if path else ", ".join(endpoints)
 

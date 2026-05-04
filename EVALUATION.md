@@ -117,3 +117,27 @@ Treat it as evidence that:
 - [x] Hand-classification committed at `evaluation/classification.csv`.
 - [x] Classification rubric documented above.
 - [ ] Recall measurement (deferred; would require ground-truth annotation).
+
+## AST scanner (added after this evaluation)
+
+The numbers above are the regex scanner only. The AST scanner
+([`source_code_ast.py`](src/pqc_scan/scanners/source_code_ast.py)) runs in
+parallel on Python files using libcst's `QualifiedNameProvider`, sharing
+rule IDs with the regex scanner so duplicates collapse via the CLI's
+post-aggregation dedup pass.
+
+The two scanners cover different patterns:
+
+- **Regex scanner only:** mentions in non-call positions (e.g. `# TODO: replace
+  rsa with ml-kem`, `algo = "md5"`). Some of these are intentional surfaces
+  (compliance review wants to see comments mentioning legacy algorithms),
+  which is why we keep the regex scanner authoritative for them.
+- **AST scanner only:** aliased imports (`from hashlib import md5 as h;
+  h(b"x")`), patterns regex can't match without false-positive risk. These
+  are the recall additions the AST scanner brings.
+- **Both scanners:** the headline cases (`hashlib.md5(...)`,
+  `rsa.generate_private_key(...)`). Reported once thanks to dedup.
+
+A re-run of the three OSS targets with the AST scanner enabled is on the
+roadmap for the next evaluation pass; the current numbers above are
+regex-only.
