@@ -7,6 +7,12 @@ import click
 from rich.console import Console
 
 from pqc_scan import __version__
+from pqc_scan.baseline import (
+    Baseline,
+    BaselineError,
+    discover_baseline,
+    load_baseline,
+)
 from pqc_scan.findings import Finding, Severity
 from pqc_scan.reporters import console as console_report
 from pqc_scan.reporters import csv_inventory, cyclonedx, json_report, markdown, sarif
@@ -22,6 +28,31 @@ def _parse_endpoint(value: str) -> tuple[str, int]:
         host, port = value.rsplit(":", 1)
         return host, int(port)
     return value, 443
+
+
+def _resolve_baseline(
+    explicit_path: Path | None, suppress_autodiscover: bool, target: Path | None
+) -> Baseline | None:
+    """Decide which baseline to load (if any) and parse it.
+
+    --baseline PATH always wins. Otherwise, unless --no-baseline is set,
+    look for .pqc-scan-baseline.yml in the target directory or CWD.
+    """
+    chosen: Path | None
+    if explicit_path is not None:
+        chosen = explicit_path
+    elif suppress_autodiscover:
+        chosen = None
+    else:
+        chosen = discover_baseline(target)
+
+    if chosen is None:
+        return None
+
+    try:
+        return load_baseline(chosen)
+    except BaselineError as exc:
+        raise click.UsageError(str(exc)) from exc
 
 
 @click.command(context_settings={"help_option_names": ["-h", "--help"]})
@@ -62,6 +93,18 @@ def _parse_endpoint(value: str) -> tuple[str, int]:
     "--skip-tests", is_flag=True,
     help="Drop findings whose path contains a test/fixture directory component.",
 )
+@click.option(
+    "--baseline", "baseline_path", type=click.Path(path_type=Path),
+    help=(
+        "Path to a baseline file (YAML) listing rule/path suppressions. "
+        "If omitted, looks for .pqc-scan-baseline.yml in the scanned directory "
+        "and the current working directory."
+    ),
+)
+@click.option(
+    "--no-baseline", is_flag=True,
+    help="Skip auto-discovery of .pqc-scan-baseline.yml. Use with --baseline to override.",
+)
 @click.version_option(__version__, prog_name="pqc-scan")
 def main(
     path: Path | None,
@@ -77,6 +120,8 @@ def main(
     no_certs: bool,
     no_ssh: bool,
     skip_tests: bool,
+    baseline_path: Path | None,
+    no_baseline: bool,
 ) -> None:
     """Scan for quantum-vulnerable cryptography.
 
@@ -102,6 +147,17 @@ def main(
 
     if skip_tests:
         findings = [f for f in findings if not f.in_test_path]
+
+    baseline = _resolve_baseline(baseline_path, no_baseline, path)
+    if baseline is not None and baseline.entries:
+        before = len(findings)
+        findings = baseline.filter(findings)
+        suppressed = before - len(findings)
+        if suppressed:
+            click.echo(
+                f"[baseline] suppressed {suppressed} finding(s) via {len(baseline.entries)} rule(s)",
+                err=True,
+            )
 
     target_label = str(path) if path else ", ".join(endpoints)
 

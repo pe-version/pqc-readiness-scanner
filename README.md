@@ -111,7 +111,24 @@ Or, suppress all rules on that line:
 hashlib.md5(content_bytes)  # pqc-scan: ignore  # used by HTTP Digest Auth (RFC 7616)
 ```
 
-The suppression syntax is intentionally minimal in v0.2: line-trailing only, no expiration, no required justification. A future release may add a baseline file for project-wide suppression — see [SCOPE.md](SCOPE.md).
+The inline syntax is intentionally minimal: line-trailing only, no expiration, no required justification.
+
+For project-wide suppression, drop a `.pqc-scan-baseline.yml` at the project root:
+
+```yaml
+suppressions:
+  - rule: pqc-scan.source.md5.python-hashlib
+    paths: [src/legacy_etag.py]
+    reason: "non-cryptographic content addressing; SHA-256 migration tracked in #234"
+  - rule: pqc-scan.source.rsa.ssh-rsa
+    paths: ["tests/", "build/"]
+    reason: "test fixtures; not production code"
+  - rule: pqc-scan.jwt.rs256.token
+    # paths omitted → suppress this rule everywhere
+    reason: "tracked in #234, migration deferred to Q3"
+```
+
+`paths` matches at path-component boundaries (so `tests/` matches `tests/x.py` and `proj/tests/x.py` but not `mytests/x.py`). The CLI auto-discovers `.pqc-scan-baseline.yml` from the scanned directory or current working directory; pass `--baseline PATH` to override or `--no-baseline` to disable discovery. The number of findings suppressed by the baseline is reported on stderr each run.
 
 ## Limitations
 
