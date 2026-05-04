@@ -50,6 +50,20 @@ CATEGORY_DESCRIPTIONS: dict[str, str] = {
         "Reported because it co-occurs with the PQC migration surface; not a "
         "general crypto-hygiene rule."
     ),
+    "tls_kem_classical": (
+        "Classical (non-PQC) key-exchange group negotiated by a TLS endpoint. "
+        "All listed groups are broken by Shor's algorithm; harvest-now-decrypt-"
+        "later applies to the session keys derived from this exchange."
+    ),
+    "tls_kem_pqc_hybrid": (
+        "Post-quantum hybrid key-exchange group negotiated by a TLS endpoint. "
+        "Reported as informational inventory: this is the operational signal "
+        "that the endpoint is already PQC-ready at the transport layer."
+    ),
+    "tls_protocol": (
+        "TLS protocol version observation. Modern PQC migrations require TLS "
+        "1.3; older versions are reported here as inventory blockers."
+    ),
 }
 
 
@@ -273,6 +287,45 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         notes=(
             "EdDSA (Ed25519) signatures inside JWS. Broken by Shor's algorithm; part "
             "of the PQC migration surface for any service issuing or verifying JWTs."
+        ),
+    ),
+    "tls_kem_classical": AlgorithmInfo(
+        id="tls_kem_classical",
+        display="TLS classical key-exchange group",
+        category="tls_kem_classical",
+        severity=Severity.HIGH,
+        replacement="Hybrid PQC group (e.g. X25519MLKEM768, group 0x11ec) once "
+        "supported by both endpoints.",
+        notes=(
+            "The TLS handshake negotiated a classical-only group. Session keys "
+            "derived from this exchange are subject to harvest-now-decrypt-later. "
+            "Migration path is enabling a hybrid PQC group on both client and "
+            "server (the IETF / Cloudflare / Google deployment is X25519MLKEM768)."
+        ),
+    ),
+    "tls_kem_pqc_hybrid": AlgorithmInfo(
+        id="tls_kem_pqc_hybrid",
+        display="TLS post-quantum hybrid key-exchange group",
+        category="tls_kem_pqc_hybrid",
+        severity=Severity.INFO,
+        replacement="N/A — already PQC-ready at the transport layer.",
+        notes=(
+            "The TLS handshake negotiated a post-quantum hybrid group. This is "
+            "the operational signal that the endpoint is already running PQC. "
+            "The classical half of the hybrid (e.g. X25519) is retained for "
+            "defense-in-depth during the migration window."
+        ),
+    ),
+    "tls_protocol_legacy": AlgorithmInfo(
+        id="tls_protocol_legacy",
+        display="TLS 1.2 or earlier",
+        category="tls_protocol",
+        severity=Severity.MEDIUM,
+        replacement="TLS 1.3.",
+        notes=(
+            "PQC hybrid groups are TLS 1.3 only. An endpoint stuck on TLS 1.2 "
+            "or earlier cannot participate in the standard PQC migration path "
+            "regardless of certificate or library upgrades."
         ),
     ),
 }

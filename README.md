@@ -11,7 +11,7 @@ The findings produced by this scanner map to **OWASP Top 10 A02:2021 (Cryptograp
 - **Source code** — Python, JavaScript/TypeScript, Go, Rust, Java/Kotlin/Scala, C/C++, C#, Ruby, PHP, shell, Terraform, configuration files, and others
 - **X.509 certificates** — `.pem`, `.crt`, `.cer`, `.der` (including XMSS / HSS-LMS signature OIDs per NIST SP 800-208)
 - **SSH keys, `authorized_keys`, `known_hosts`**
-- **Live TLS endpoints** — server certificate public key + signature hash
+- **Live TLS endpoints** — server certificate public key + signature hash, plus the **negotiated TLS 1.3 key-exchange group** (so you can tell whether the endpoint is already running a PQC hybrid like `X25519MLKEM768`)
 - **JSON Web Token usage** — RS256 / ES256 / EdDSA (PQC-migration surface) plus `alg: none`, signature verification disabled, and weak HMAC secrets (the classical-failure cases that co-occur with PQC migration work)
 
 For each finding it reports the **NIST-recommended replacement** (ML-KEM, ML-DSA, SLH-DSA, AES-256, etc.) and a stable **rule ID** that supports inline suppression and SARIF dedup.
@@ -72,6 +72,20 @@ high      ECDSA (server cert)            api.example.com:443                 ML-
 ```
 
 A full sample report (Markdown) lives in [`examples/sample_report.md`](examples/sample_report.md).
+
+### Detecting whether an endpoint is already PQC
+
+```bash
+$ pqc-scan --endpoint pq.cloudflareresearch.com:443
+high  ECDSA (public key)                              ML-DSA / SLH-DSA
+info  TLS post-quantum hybrid: X25519MLKEM768         N/A — already PQC-ready
+
+$ pqc-scan --endpoint github.com:443
+high  ECDSA (public key)                              ML-DSA / SLH-DSA
+high  TLS classical key-exchange group: X25519        Hybrid PQC group (e.g. X25519MLKEM768)
+```
+
+The endpoint scanner sends a TLS 1.3 ClientHello directly via raw socket and parses the server's response (a ServerHello or HelloRetryRequest) to extract the negotiated key-exchange group from its `KeyShare` extension. Python's stdlib `ssl` module does not expose the group, so this scanner ships its own minimal RFC 8446 record parser.
 
 ## What it flags
 
@@ -134,7 +148,7 @@ suppressions:
 
 - **Regex-based source scan**, not full AST analysis. False positives in comments and string literals are possible; minified files and very large files are skipped. AST-based detection is on the roadmap, gated on `EVALUATION.md` precision data justifying the refactor.
 - **No binary scan.** Compiled artifacts are not analyzed.
-- **TLS endpoint scan is informational** — only the leaf certificate's public key and signature hash are checked, not the negotiated cipher suite or KEM.
+- **TLS endpoint scan covers the cert and the negotiated TLS 1.3 key-exchange group** via a hand-rolled record parser ([`tls_records.py`](src/pqc_scan/tls_records.py), [`tls_groups.py`](src/pqc_scan/tls_groups.py)). The advertised-group list and group-ID registry must be kept current as new PQC hybrid codepoints are deployed; out-of-date → false negatives.
 - **JWT scanner is intentionally narrow.** Covers PQC-migration surface plus the canonical classical-failure cases. Not a complete RFC 8725 (BCP) implementation — see [SCOPE.md](SCOPE.md).
 - **XMSS / LMS detection is inventory only.** The scanner identifies use of stateful hash-based signatures but does not analyze state-management correctness. See NIST SP 800-208 §6 for the operational requirements.
 - **The taxonomy is opinionated.** "Migrate before a CRQC exists" reflects current NIST/NSA/CISA guidance but the timeline is a moving target.
@@ -151,7 +165,7 @@ The CI workflow at [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs `
 ## Roadmap
 
 - AST-based source detection (libcst for Python, tree-sitter for others) — gated on EVALUATION.md showing real precision gaps
-- Cipher-suite + KEM analysis for TLS endpoints (currently leaf-cert only)
+- Cipher-suite analysis for TLS endpoints (KEM-group analysis already shipped; cipher suites are captured but not yet emitted as their own findings)
 - KMS / HSM inventory adapters (AWS KMS, GCP KMS, HashiCorp Vault)
 - Per-rule baseline file (`.pqc-scan-baseline.yml`) for project-wide suppression
 - Detection inside compiled binaries (parsing OIDs in ELF / PE / Mach-O)
